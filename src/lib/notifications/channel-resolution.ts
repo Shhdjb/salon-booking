@@ -1,10 +1,12 @@
 /**
  * Resolve outbound channel: WhatsApp → SMS fallback → Email.
- * Phone channels require opt-in + valid appointment phone + Twilio env.
+ * Phone channels require valid appointment phone + Twilio env.
+ * Marketing-style sends also require `phoneNotificationsEnabled`; admin official
+ * confirmation can pass `bypassMarketingConsent` to allow transactional delivery.
  */
 
 import type { NotificationChannel } from "@prisma/client";
-import { isValidPhone } from "@/lib/phone-utils";
+import { toIsraeliMobileE164 } from "@/lib/phone-utils";
 
 const LOG = "[salon-notify][channel]";
 
@@ -22,15 +24,22 @@ export function resolveOutboundChannel(input: {
   preferredChannel: NotificationChannel | null | undefined;
   appointmentPhone: string | null | undefined;
   email: string | null | undefined;
+  /**
+   * Admin official booking confirmation (مؤكد): send via phone/email without marketing opt-in,
+   * when contact details exist and Twilio is configured.
+   */
+  bypassMarketingConsent?: boolean;
 }): ResolvedOutbound {
   const {
     phoneNotificationsEnabled,
     preferredChannel,
     appointmentPhone,
     email,
+    bypassMarketingConsent = false,
   } = input;
 
-  if (!phoneNotificationsEnabled) {
+  const consentOk = phoneNotificationsEnabled || bypassMarketingConsent;
+  if (!consentOk) {
     console.log(`${LOG} all channels skipped — user has not enabled notifications (consent)`);
     return {
       channel: null,
@@ -51,11 +60,11 @@ export function resolveOutboundChannel(input: {
   );
 
   const pref = preferredChannel ?? "WHATSAPP";
-  const phoneOk =
-    Boolean(appointmentPhone?.trim()) &&
-    isValidPhone(appointmentPhone!.trim());
+  const trimmedPhone = appointmentPhone?.trim() ?? "";
+  const phoneE164 = trimmedPhone ? toIsraeliMobileE164(trimmedPhone) : null;
+  const phoneOk = Boolean(phoneE164);
 
-  if (phoneNotificationsEnabled && phoneOk) {
+  if (consentOk && phoneOk) {
     if (pref === "WHATSAPP") {
       if (hasWhatsapp) {
         return {

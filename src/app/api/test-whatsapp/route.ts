@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { normalizePhone } from "@/lib/phone-utils";
+import { toIsraeliMobileE164 } from "@/lib/phone-utils";
 import { sendWhatsApp } from "@/lib/notifications/channels/whatsapp";
 import {
   jsonUnauthorized,
@@ -42,7 +42,10 @@ export async function POST(req: Request) {
     return jsonBadRequest('حقل "to" (رقم الجوال) مطلوب في JSON');
   }
 
-  const normalized = normalizePhone(rawTo);
+  const normalized = toIsraeliMobileE164(rawTo);
+  if (!normalized) {
+    return jsonBadRequest("رقم جوال غير صالح — استخدمي 05XXXXXXXX أو +9725XXXXXXXX");
+  }
   const result = await sendWhatsApp(normalized, BODY);
 
   return NextResponse.json({

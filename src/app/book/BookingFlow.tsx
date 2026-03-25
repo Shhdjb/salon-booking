@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
 import { ChevronRight, ChevronLeft, Check } from "lucide-react";
 import type { Service } from "@prisma/client";
-import { applyLoyaltyDiscount } from "@/lib/loyalty";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -53,7 +52,6 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmed, setConfirmed] = useState(false);
   const [submitState, setSubmitState] = useState<{ success?: boolean; error?: string }>({});
-  const [loyaltyDiscount, setLoyaltyDiscount] = useState(0);
   const [phoneNotificationsConsent, setPhoneNotificationsConsent] = useState(
     user?.phoneNotificationsEnabled ?? false
   );
@@ -69,15 +67,12 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
   };
 
   const servicesLabel = selectedServicesData.map((s) => s.name).join(" + ");
-  const subtotalPrice = selectedServicesData.reduce((sum, s) => sum + s.price, 0);
-  const estimatedFinal = applyLoyaltyDiscount(subtotalPrice, loyaltyDiscount);
 
   useEffect(() => {
     const loadUser = (data: {
       name?: string;
       email?: string;
       phone?: string;
-      loyalty?: { currentDiscount: number };
       phoneNotificationsEnabled?: boolean;
       preferredNotificationChannel?: string | null;
     } | null) => {
@@ -94,7 +89,6 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
         const phone = data.phone;
         setCustomerPhone((prev) => prev || phone);
       }
-      if (data.loyalty?.currentDiscount) setLoyaltyDiscount(data.loyalty.currentDiscount);
       if (data.phoneNotificationsEnabled !== undefined) setPhoneNotificationsConsent(data.phoneNotificationsEnabled);
     };
     if (user) {
@@ -282,7 +276,7 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
               اختاري الخدمة أو أكثر
             </h2>
             <p className="font-body text-sm text-[#6B5D52] mb-4 text-right">
-              يمكنكِ تحديد أكثر من خدمة في نفس الموعد. المدة والسعر يُحسبان تلقائياً.
+              يمكنكِ تحديد أكثر من خدمة في نفس الموعد في زيارة واحدة.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {bookableServices.map((s) => (
@@ -297,9 +291,6 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
                   }`}
                 >
                   <p className="font-body font-bold text-[#4A3F35]">{s.name}</p>
-                  <p className="font-body text-xs text-[#6B5D52] mt-1">
-                    {s.duration} دقيقة · {s.price} ₪
-                  </p>
                 </button>
               ))}
             </div>
@@ -445,22 +436,6 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
               <p>
                 <span className="text-[#6B5D52]">الخدمات:</span> {servicesLabel}
               </p>
-              {selectedServicesData.length > 0 && (
-                <p>
-                  <span className="text-[#6B5D52]">السعر التقديري:</span>{" "}
-                  {loyaltyDiscount > 0 ? (
-                    <>
-                      <span className="line-through opacity-70">{subtotalPrice} ₪</span>{" "}
-                      <span className="font-semibold text-salon-gold-dark">
-                        {estimatedFinal} ₪
-                      </span>
-                      <span className="text-xs mr-1">(بعد خصم الولاء {loyaltyDiscount}%)</span>
-                    </>
-                  ) : (
-                    <span>{subtotalPrice} ₪</span>
-                  )}
-                </p>
-              )}
               <p>
                 <span className="text-[#6B5D52]">التاريخ:</span>{" "}
                 {date && format(new Date(date), "EEEE d MMMM yyyy", { locale: ar })}

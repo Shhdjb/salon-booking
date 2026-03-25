@@ -1,13 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { format, parseISO } from "date-fns";
 import { ar } from "date-fns/locale";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { Appointment, AppointmentLine, Service } from "@prisma/client";
 import { formatAppointmentServiceNames } from "@/lib/appointment-labels";
+import {
+  adminApiErrorMessage,
+  parseAdminApiJson,
+  ADMIN_ACTION_DISABLED_TITLE,
+} from "@/lib/admin-api-errors";
+
+const CLIENT_LOG = "[admin-client][calendar]";
 
 type LineWithService = AppointmentLine & { service: Service };
 
@@ -52,7 +60,32 @@ export function AdminCalendar({
   initialAppointments: CalendarAppointment[];
 }) {
   const router = useRouter();
+  const { data: session, status: sessionStatus } = useSession();
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; variant: "info" | "error" } | null>(
+    null
+  );
+  const toastClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const actionsLocked =
+    sessionStatus === "loading" ||
+    sessionStatus === "unauthenticated" ||
+    session?.user?.role !== "ADMIN";
+
+  const showToast = (text: string, variant: "info" | "error" = "info") => {
+    if (toastClearRef.current) clearTimeout(toastClearRef.current);
+    setToast({ text, variant });
+    toastClearRef.current = setTimeout(() => {
+      setToast(null);
+      toastClearRef.current = null;
+    }, variant === "error" ? 6500 : 4000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (toastClearRef.current) clearTimeout(toastClearRef.current);
+    };
+  }, []);
 
   const byDate = useMemo(() => {
     const m = new Map<string, CalendarAppointment[]>();
@@ -80,14 +113,37 @@ export function AdminCalendar({
   };
 
   const patchStatus = async (id: string, status: string) => {
+    if (actionsLocked) {
+      showToast(ADMIN_ACTION_DISABLED_TITLE, "error");
+      return;
+    }
     setUpdatingId(id);
     try {
+      console.log(`${CLIENT_LOG} PATCH start`, { appointmentId: id, targetStatus: status });
       const res = await fetch(`/api/admin/appointments/${id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      if (res.ok) router.refresh();
+      const data = await parseAdminApiJson(res);
+      console.log(`${CLIENT_LOG} PATCH response`, {
+        appointmentId: id,
+        targetStatus: status,
+        httpStatus: res.status,
+        body: data,
+      });
+      if (res.ok) {
+        if (typeof data.message === "string" && data.message) {
+          showToast(data.message, "info");
+        }
+        router.refresh();
+      } else {
+        showToast(adminApiErrorMessage(res, data), "error");
+      }
+    } catch (e) {
+      console.error(`${CLIENT_LOG} PATCH network/failure`, { appointmentId: id, err: e });
+      showToast("تعذر الاتصال بالخادم", "error");
     } finally {
       setUpdatingId(null);
     }
@@ -95,6 +151,19 @@ export function AdminCalendar({
 
   return (
     <div className="space-y-6">
+      {toast ? (
+        <div
+          className={`fixed bottom-6 left-1/2 z-[100] max-w-md -translate-x-1/2 rounded-2xl border px-5 py-3 text-center font-body text-sm text-white shadow-lg ${
+            toast.variant === "error"
+              ? "border-red-400/50 bg-[#7c2d2d]"
+              : "border-[#C9A882]/40 bg-[#4A3F35]"
+          }`}
+          role="alert"
+          dir="rtl"
+        >
+          {toast.text}
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2 rounded-xl border border-[#E8DDD4] bg-white p-1">
           <Link
@@ -191,9 +260,10 @@ export function AdminCalendar({
                         {a.status !== "confirmed" && a.status !== "cancelled" && (
                           <button
                             type="button"
-                            disabled={updatingId === a.id}
+                            disabled={actionsLocked || updatingId === a.id}
+                            title={actionsLocked ? ADMIN_ACTION_DISABLED_TITLE : undefined}
                             onClick={() => patchStatus(a.id, "confirmed")}
-                            className="rounded-md bg-blue-600 px-2 py-0.5 text-[10px] text-white disabled:opacity-50"
+                            className="rounded-md bg-blue-600 px-2 py-0.5 text-[10px] text-white disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             تأكيد
                           </button>
@@ -201,9 +271,10 @@ export function AdminCalendar({
                         {a.status !== "cancelled" && (
                           <button
                             type="button"
-                            disabled={updatingId === a.id}
+                            disabled={actionsLocked || updatingId === a.id}
+                            title={actionsLocked ? ADMIN_ACTION_DISABLED_TITLE : undefined}
                             onClick={() => patchStatus(a.id, "cancelled")}
-                            className="rounded-md bg-gray-600 px-2 py-0.5 text-[10px] text-white disabled:opacity-50"
+                            className="rounded-md bg-gray-600 px-2 py-0.5 text-[10px] text-white disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             إلغاء
                           </button>
@@ -211,9 +282,10 @@ export function AdminCalendar({
                         {a.status !== "completed" && a.status !== "cancelled" && (
                           <button
                             type="button"
-                            disabled={updatingId === a.id}
+                            disabled={actionsLocked || updatingId === a.id}
+                            title={actionsLocked ? ADMIN_ACTION_DISABLED_TITLE : undefined}
                             onClick={() => patchStatus(a.id, "completed")}
-                            className="rounded-md bg-green-600 px-2 py-0.5 text-[10px] text-white disabled:opacity-50"
+                            className="rounded-md bg-green-600 px-2 py-0.5 text-[10px] text-white disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             مكتمل
                           </button>
@@ -221,9 +293,10 @@ export function AdminCalendar({
                         {a.status !== "no_show" && a.status !== "cancelled" && a.status !== "completed" && (
                           <button
                             type="button"
-                            disabled={updatingId === a.id}
+                            disabled={actionsLocked || updatingId === a.id}
+                            title={actionsLocked ? ADMIN_ACTION_DISABLED_TITLE : undefined}
                             onClick={() => patchStatus(a.id, "no_show")}
-                            className="rounded-md bg-red-600 px-2 py-0.5 text-[10px] text-white disabled:opacity-50"
+                            className="rounded-md bg-red-600 px-2 py-0.5 text-[10px] text-white disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             لم تحضر
                           </button>

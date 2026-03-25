@@ -5,7 +5,7 @@
  */
 
 import { prisma } from "@/lib/db";
-import { isValidPhone, normalizePhone } from "@/lib/phone-utils";
+import { toIsraeliMobileE164 } from "@/lib/phone-utils";
 import type { NotificationChannel, NotificationType } from "@prisma/client";
 import type { NotificationPayload, SendResult } from "./types";
 import { sendSMS } from "./channels/sms";
@@ -25,11 +25,8 @@ function destinationForPayload(
   if (channel === "SMS" || channel === "WHATSAPP") {
     const p = phone?.trim();
     if (!p) return null;
-    try {
-      return isValidPhone(p) ? normalizePhone(p) : p;
-    } catch {
-      return p;
-    }
+    const e164 = toIsraeliMobileE164(p);
+    return e164 ?? p;
   }
   return email?.trim() || null;
 }
@@ -143,6 +140,9 @@ export async function sendNotification(
   });
   const body = channel === "EMAIL" ? msg.body : msg.smsBody;
 
+  /** Set after SMS/WhatsApp validation — always E.164 for Twilio. */
+  let phoneE164ForSend: string | undefined;
+
   if (channel === "SMS" || channel === "WHATSAPP") {
     if (!phoneNotificationsEnabled) {
       await logNotificationSkipped({
@@ -162,7 +162,8 @@ export async function sendNotification(
       });
       return { success: false, error: "No consent", channel };
     }
-    if (!phone || !isValidPhone(phone)) {
+    const parsedE164 = phone?.trim() ? toIsraeliMobileE164(phone.trim()) : null;
+    if (!phone?.trim() || !parsedE164) {
       await logNotificationSkipped({
         userId: userId ?? null,
         appointmentId: appointmentId ?? null,
@@ -171,15 +172,18 @@ export async function sendNotification(
         title: msg.title,
         body,
         destination: phone?.trim() || null,
-        failureReason: "Invalid or empty phone for SMS/WhatsApp",
+        failureReason: "Invalid or empty phone for SMS/WhatsApp (E.164)",
       });
       console.log(`${LOG} skip (invalid phone for SMS/WhatsApp)`, {
         type,
         channel,
         appointmentId,
+        phoneRaw: phone?.trim() ?? null,
+        phoneNormalizedE164: parsedE164,
       });
       return { success: false, error: "Invalid phone", channel };
     }
+    phoneE164ForSend = parsedE164;
   } else if (channel === "EMAIL") {
     if (!phoneNotificationsEnabled) {
       await logNotificationSkipped({
@@ -226,7 +230,20 @@ export async function sendNotification(
     console.log(`${LOG} skip (duplicate notification within window)`, {
       type,
       appointmentId,
+      channel,
+      phoneRaw: phone?.trim() ?? null,
+      phoneNormalizedE164:
+        phone?.trim() && (channel === "SMS" || channel === "WHATSAPP")
+          ? toIsraeliMobileE164(phone.trim())
+          : null,
     });
+    if (type === "APPOINTMENT_CONFIRMED") {
+      console.log(`${LOG} confirm-flow dedup`, {
+        appointmentId,
+        channel,
+        previousStatusHint: "dedup_window_blocks_second_send",
+      });
+    }
     return { success: false, error: "Duplicate notification", channel };
   }
 
@@ -237,7 +254,7 @@ export async function sendNotification(
     channel,
     title: msg.title,
     body,
-    phone,
+    phone: phoneE164ForSend ?? phone,
     email,
   };
 
@@ -245,14 +262,22 @@ export async function sendNotification(
 
   let result: SendResult;
 
-  if (channel === "SMS" && phone) {
-    const normalized = normalizePhone(phone);
-    console.log(`${LOG} SMS path`, { type, appointmentId, destinationPhoneNormalized: normalized });
-    result = await sendSMS(normalized, body);
-  } else if (channel === "WHATSAPP" && phone) {
-    const normalized = normalizePhone(phone);
-    console.log(`${LOG} WhatsApp path`, { type, appointmentId, destinationPhoneNormalized: normalized });
-    result = await sendWhatsApp(normalized, body);
+  if (channel === "SMS" && phoneE164ForSend) {
+    console.log(`${LOG} SMS path`, {
+      type,
+      appointmentId,
+      phoneRaw: phone?.trim() ?? null,
+      destinationPhoneNormalized: phoneE164ForSend,
+    });
+    result = await sendSMS(phoneE164ForSend, body);
+  } else if (channel === "WHATSAPP" && phoneE164ForSend) {
+    console.log(`${LOG} WhatsApp path`, {
+      type,
+      appointmentId,
+      phoneRaw: phone?.trim() ?? null,
+      destinationPhoneNormalized: phoneE164ForSend,
+    });
+    result = await sendWhatsApp(phoneE164ForSend, body);
   } else if (channel === "EMAIL" && email) {
     const html = `
       <div dir="rtl" style="font-family: Cairo, Arial, sans-serif; max-width: 500px;">
@@ -270,6 +295,14 @@ export async function sendNotification(
   if (result.success) {
     await markNotificationSent(notificationId, result.twilioMessageSid ?? null);
     console.log(`${LOG} notification sent OK`, { channel, type, appointmentId });
+    if (type === "APPOINTMENT_CONFIRMED") {
+      console.log("[admin-e2e-verify] APPOINTMENT_CONFIRMED sent once (dedup blocks duplicate within 60min)", {
+        appointmentId: appointmentId ?? null,
+        channel,
+        notificationId,
+        twilioMessageSid: result.twilioMessageSid ?? null,
+      });
+    }
     return {
       success: true,
       notificationId,
@@ -278,6 +311,14 @@ export async function sendNotification(
     };
   } else {
     await markNotificationFailed(notificationId, result.error || "Unknown");
+    if (type === "APPOINTMENT_CONFIRMED") {
+      console.error("[admin-e2e-verify] APPOINTMENT_CONFIRMED provider send FAILED", {
+        appointmentId: appointmentId ?? null,
+        channel,
+        notificationId,
+        error: result.error,
+      });
+    }
     return { success: false, error: result.error, channel };
   }
 }

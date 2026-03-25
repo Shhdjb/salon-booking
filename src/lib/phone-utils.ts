@@ -1,46 +1,65 @@
 /**
  * Phone validation and formatting for SALON SHAHD
- * Supports Israeli format: 05x-xxx-xxxx, +9725x-xxx-xxxx
+ * Supports Israeli format: 05x-xxx-xxxx, 5x-xxx-xxxx, +9725x…, 9725x… (with spaces/dashes)
  */
 
-/** Allow formatted Israeli numbers including +972 with spaces/dashes (up to ~20 chars). */
+/** Allow formatted Israeli numbers including +972 with spaces/dashes (up to ~22 chars). */
 const PHONE_REGEX = /^[\d\s\-+()]{9,22}$/;
-const ISRAELI_PHONE_REGEX = /^(?:\+972|0)?5\d{8}$/;
 
 /**
- * Israeli mobile in common stored shapes:
- * - 05XXXXXXXX (10 digits)
- * - 5XXXXXXXX (9 digits, national significant)
- * - +9725XXXXXXXX / 9725XXXXXXXX (12 digits after stripping +)
+ * Parse common Israeli mobile shapes to E.164 (+9725XXXXXXXX).
+ * Strips separators; handles 00 international prefix; does not guess invalid lengths.
+ */
+export function toIsraeliMobileE164(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  let digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 0) return null;
+
+  while (digits.startsWith("00") && digits.length > 2) {
+    digits = digits.slice(2);
+  }
+
+  if (digits.length === 12 && digits.startsWith("972")) {
+    if (/^9725\d{8}$/.test(digits)) return `+${digits}`;
+    return null;
+  }
+
+  if (digits.length === 10 && /^05\d{8}$/.test(digits)) {
+    return `+972${digits.slice(1)}`;
+  }
+
+  if (digits.length === 9 && /^5\d{8}$/.test(digits)) {
+    return `+972${digits}`;
+  }
+
+  return null;
+}
+
+/**
+ * True if the string looks like a supported Israeli mobile (after normalization to E.164).
  */
 export function isValidPhone(phone: string): boolean {
   const trimmed = phone.trim();
   if (!PHONE_REGEX.test(trimmed)) return false;
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length >= 9 && digits.length <= 10) {
-    return /^0?5\d{8}$/.test(digits) || /^5\d{8}$/.test(digits);
-  }
-  if (digits.length === 12 && digits.startsWith("972")) {
-    return /^9725\d{8}$/.test(digits);
-  }
-  return false;
+  return toIsraeliMobileE164(trimmed) !== null;
 }
 
-/** E.164 for Israel: +9725XXXXXXXX (also accepts already-international input). */
+/**
+ * Normalize to E.164 for Twilio SMS/WhatsApp. Call only after {@link isValidPhone} is true.
+ */
 export function normalizePhone(phone: string): string {
-  const trimmed = phone.trim();
-  const digits = trimmed.replace(/\D/g, "");
-  if (trimmed.startsWith("+") && digits.startsWith("972")) {
-    return `+${digits}`;
+  const e164 = toIsraeliMobileE164(phone);
+  if (!e164) {
+    throw new Error(`normalizePhone: invalid Israeli mobile: ${JSON.stringify(phone)}`);
   }
-  if (digits.startsWith("972")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+972${digits.slice(1)}`;
-  if (digits.length === 9 && digits.startsWith("5")) return `+972${digits}`;
-  return `+972${digits}`;
+  return e164;
 }
 
 export function formatPhoneDisplay(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
+  const e164 = toIsraeliMobileE164(phone);
+  const digits = e164 ? e164.replace(/\D/g, "") : phone.replace(/\D/g, "");
   if (digits.startsWith("972") && digits.length === 12) {
     return `0${digits.slice(3, 5)}-${digits.slice(5, 8)}-${digits.slice(8)}`;
   }

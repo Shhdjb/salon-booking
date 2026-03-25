@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { NotificationsLog } from "./NotificationsLog";
+import { ReminderManualRun } from "@/components/admin/ReminderManualRun";
 
 export default function AdminNotificationsPage() {
   return (
@@ -12,6 +13,7 @@ export default function AdminNotificationsPage() {
           تتبع محاولات الإرسال وحالات النجاح والفشل
         </p>
       </div>
+      <ReminderManualRun />
       <Suspense fallback={<p className="font-body text-[#6B5D52]">جاري التحميل...</p>}>
         <NotificationsLog />
       </Suspense>

@@ -3,8 +3,10 @@ import { processAppointmentReminders } from "@/lib/notifications/customer-delive
 import { jsonUnauthorized, jsonInternal } from "@/lib/api-response";
 
 /**
- * Production: Vercel Cron hits this hourly (see vercel.json). Vercel sends `x-vercel-cron: 1`.
- * External schedulers: GET with `Authorization: Bearer <CRON_SECRET>`.
+ * Scheduled reminders: on Vercel Pro+, configure Cron in dashboard or restore `crons` in vercel.json.
+ * Hobby: no platform cron — use POST `/api/admin/appointment-reminders/run` (admin UI: سجل الإشعارات)
+ * or GET here with `Authorization: Bearer <CRON_SECRET>` from an external scheduler.
+ * When Vercel Cron runs, it sends `x-vercel-cron: 1`.
  */
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;

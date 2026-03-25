@@ -1,12 +1,13 @@
 /**
  * Appointment status, loyalty, and admin/client-driven notifications.
- * Official confirmation (APPOINTMENT_CONFIRMED) only when admin sets مؤكد.
+ * APPOINTMENT_CONFIRMED (WhatsApp/SMS) only when:
+ * actor === admin-api AND previousStatus === pending AND newStatus === confirmed.
  */
 
 import { prisma } from "@/lib/db";
 import { MIN_HOURS_BEFORE_CANCEL } from "./constants";
 import { add, parse, isBefore } from "date-fns";
-import { normalizePhone } from "@/lib/phone-utils";
+import { toIsraeliMobileE164 } from "@/lib/phone-utils";
 import { getDiscountForCount } from "@/lib/loyalty";
 import {
   sendOfficialConfirmationByAdmin,
@@ -17,8 +18,10 @@ import {
 import { formatAppointmentServiceNames } from "@/lib/appointment-labels";
 
 const LOG = "[salon-notify][admin-status]";
+const CONFIRM_FLOW = "[salon-notify][admin-confirm-flow]";
+const E2E = "[admin-e2e-verify]";
 
-/** Who triggered the status change — official confirmation only for `admin-api`. */
+/** Who triggered the status change — WhatsApp confirmation only for `admin-api` + pending→confirmed. */
 export type AppointmentStatusActor = "admin-api" | "client-cancel" | "system";
 
 export type UpdateAppointmentStatusResult = {
@@ -55,29 +58,35 @@ export async function updateAppointmentStatus(
   }
 
   const prevStatus = appointment.status;
-  const phoneNormalizedForLog = appointment.phone
-    ? normalizePhone(appointment.phone.trim())
-    : null;
+  const phoneRaw = appointment.phone?.trim() ?? null;
+  const phoneNormalizedE164 = phoneRaw ? toIsraeliMobileE164(phoneRaw) : null;
+
   console.log(`${LOG} loaded appointment`, {
     appointmentId,
     previousStatus: prevStatus,
     newStatus,
     actor: context.actor,
-    customerPhoneRaw: appointment.phone,
-    customerPhoneNormalized: phoneNormalizedForLog,
+    phoneRaw,
+    phoneNormalizedE164,
   });
 
   if (newStatus === prevStatus) {
     const skipDuplicateConfirmation = prevStatus === "confirmed";
-    console.log(`${LOG} status unchanged — skipping DB update and notifications`, {
+    console.log(`${CONFIRM_FLOW}`, {
       appointmentId,
       previousStatus: prevStatus,
       newStatus,
       actor: context.actor,
-      confirmationSkippedAlreadyConfirmed: skipDuplicateConfirmation,
-      normalizedDestinationPhone: phoneNormalizedForLog,
+      phoneRaw,
+      phoneNormalizedE164,
+      notificationSkippedBecauseAlreadyConfirmed:
+        skipDuplicateConfirmation && newStatus === "confirmed",
+      notificationAttempted: false,
+      selectedChannel: null,
+      sendSuccess: null,
+      sendError: null,
       note: skipDuplicateConfirmation
-        ? "APPOINTMENT_CONFIRMED not sent (already confirmed)"
+        ? "APPOINTMENT_CONFIRMED not sent — status already confirmed (no duplicate sends)"
         : "Same status — no transition",
     });
     return {
@@ -138,16 +147,19 @@ export async function updateAppointmentStatus(
     },
   });
 
+  const pendingToConfirmedWillNotify =
+    context.actor === "admin-api" &&
+    prevStatus === "pending" &&
+    newStatus === "confirmed";
+
   console.log(`${LOG} appointment DB status committed`, {
     appointmentId,
     previousStatus: prevStatus,
     newStatus,
     actor: context.actor,
-    willSendOfficialConfirmation:
-      context.actor === "admin-api" &&
-      newStatus === "confirmed" &&
-      prevStatus !== "confirmed",
-    normalizedDestinationPhone: phoneNormalizedForLog,
+    willSendOfficialConfirmation: pendingToConfirmedWillNotify,
+    phoneRaw,
+    phoneNormalizedE164,
   });
 
   const u = appointment.user;
@@ -165,62 +177,129 @@ export async function updateAppointmentStatus(
     preferredChannel: u?.preferredNotificationChannel ?? "WHATSAPP",
   };
 
-  const transitionToConfirmed =
-    newStatus === "confirmed" && prevStatus !== "confirmed";
+  const pendingToConfirmed =
+    prevStatus === "pending" && newStatus === "confirmed";
+  const adminSetsConfirmedFromNonPending =
+    context.actor === "admin-api" &&
+    newStatus === "confirmed" &&
+    prevStatus !== "pending" &&
+    prevStatus !== "confirmed";
 
-  if (transitionToConfirmed) {
+  if (pendingToConfirmed) {
     if (context.actor !== "admin-api") {
-      console.log(`${LOG} skipping official confirmation — not admin flow`, {
+      console.log(`${CONFIRM_FLOW}`, {
         appointmentId,
         previousStatus: prevStatus,
         newStatus,
         actor: context.actor,
-        normalizedDestinationPhone: phoneNormalizedForLog,
-        note: "APPOINTMENT_CONFIRMED only when admin-api sets مؤكد",
+        phoneRaw,
+        phoneNormalizedE164,
+        pendingToConfirmed: true,
+        notificationSkippedBecauseAlreadyConfirmed: false,
+        notificationAttempted: false,
+        notificationSkippedReason: "not_admin_actor",
+        selectedChannel: null,
+        sendSuccess: null,
+        sendError: null,
       });
     } else {
-      console.log(`${LOG} admin transition → CONFIRMED — sending official confirmation`, {
+      console.log(`${E2E} sendOfficialConfirmationByAdmin invoked (pending→confirmed)`, {
         appointmentId,
         previousStatus: prevStatus,
         newStatus,
-        destinationPhoneRaw: appointment.phone,
-        destinationPhoneNormalized: phoneNormalizedForLog,
       });
       try {
         const notifyResult = await sendOfficialConfirmationByAdmin(deliveryBase);
+        console.log(`${CONFIRM_FLOW}`, {
+          appointmentId,
+          previousStatus: prevStatus,
+          newStatus,
+          actor: context.actor,
+          phoneRaw,
+          phoneNormalizedE164,
+          pendingToConfirmed: true,
+          notificationSkippedBecauseAlreadyConfirmed: false,
+          notificationAttempted: true,
+          notificationSkippedReason: notifyResult.success
+            ? null
+            : (notifyResult.error ?? "send_failed"),
+          selectedChannel: notifyResult.channel ?? null,
+          sendSuccess: notifyResult.success,
+          sendError: notifyResult.success ? null : (notifyResult.error ?? null),
+          twilioMessageSid: notifyResult.twilioMessageSid ?? null,
+        });
+        if (notifyResult.success) {
+          console.log(`${E2E} confirmation pipeline OK (check dedup window if testing repeats)`, {
+            appointmentId,
+            channel: notifyResult.channel,
+            twilioMessageSid: notifyResult.twilioMessageSid ?? null,
+          });
+        }
         if (!notifyResult.success) {
           console.error(`${LOG} official confirmation send FAILED`, {
             appointmentId,
-            previousStatus: prevStatus,
-            newStatus,
-            normalizedDestinationPhone: phoneNormalizedForLog,
             channel: notifyResult.channel,
             error: notifyResult.error,
           });
-        } else {
-          console.log(`${LOG} official confirmation send SUCCESS`, {
+          console.error(`${E2E} FAILURE REASON`, {
             appointmentId,
-            previousStatus: prevStatus,
-            newStatus,
-            normalizedDestinationPhone: phoneNormalizedForLog,
+            step: "sendOfficialConfirmationByAdmin",
+            error: notifyResult.error,
             channel: notifyResult.channel,
-            twilioMessageSid: notifyResult.twilioMessageSid,
           });
         }
       } catch (e) {
-        console.error(`${LOG} official confirmation threw`, {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        console.log(`${CONFIRM_FLOW}`, {
           appointmentId,
-          normalizedDestinationPhone: phoneNormalizedForLog,
-          err: e,
+          previousStatus: prevStatus,
+          newStatus,
+          actor: context.actor,
+          phoneRaw,
+          phoneNormalizedE164,
+          pendingToConfirmed: true,
+          notificationSkippedBecauseAlreadyConfirmed: false,
+          notificationAttempted: true,
+          notificationSkippedReason: "exception",
+          selectedChannel: null,
+          sendSuccess: false,
+          sendError: errMsg,
+        });
+        console.error(`${LOG} official confirmation threw`, { appointmentId, err: e });
+        console.error(`${E2E} FAILURE REASON`, {
+          appointmentId,
+          step: "sendOfficialConfirmationByAdmin_exception",
+          error: errMsg,
         });
       }
     }
-  } else {
-    console.log(`${LOG} no APPOINTMENT_CONFIRMED (not first transition to confirmed)`, {
+  } else if (adminSetsConfirmedFromNonPending) {
+    console.log(`${CONFIRM_FLOW}`, {
       appointmentId,
       previousStatus: prevStatus,
       newStatus,
-      reason: "Either newStatus is not confirmed, or previous was already confirmed (handled earlier if same status)",
+      actor: context.actor,
+      phoneRaw,
+      phoneNormalizedE164,
+      pendingToConfirmed: false,
+      notificationSkippedBecauseAlreadyConfirmed: false,
+      notificationAttempted: false,
+      notificationSkippedReason:
+        "whatsapp_only_when_previous_was_pending — no APPOINTMENT_CONFIRMED",
+      selectedChannel: null,
+      sendSuccess: null,
+      sendError: null,
+    });
+    console.log(`${E2E} skip WhatsApp: not pending→confirmed`, {
+      appointmentId,
+      previousStatus: prevStatus,
+      newStatus,
+    });
+  } else if (newStatus !== "confirmed") {
+    console.log(`${LOG} status change (no confirmation notification type)`, {
+      appointmentId,
+      previousStatus: prevStatus,
+      newStatus,
     });
   }
 

@@ -11,7 +11,7 @@ import { resolveOutboundChannel } from "./channel-resolution";
 import { formatAppointmentServiceNames } from "@/lib/appointment-labels";
 import { logNotificationSkipped } from "./notification-audit";
 import { getMessageForType } from "./messages";
-import { isValidPhone, normalizePhone } from "@/lib/phone-utils";
+import { toIsraeliMobileE164 } from "@/lib/phone-utils";
 
 const LOG = "[salon-notify][delivery]";
 
@@ -32,16 +32,20 @@ type DeliveryBase = {
 async function deliver(
   type: NotificationType,
   base: DeliveryBase,
-  purpose: string
+  purpose: string,
+  opts?: { bypassMarketingConsent?: boolean }
 ): Promise<SendResult> {
   const phone = base.phone?.trim() || undefined;
   const email = base.email?.trim() || undefined;
+  const bypassConsent = opts?.bypassMarketingConsent ?? false;
+  const consentForSend = bypassConsent || base.phoneNotificationsEnabled;
 
   const resolved = resolveOutboundChannel({
     phoneNotificationsEnabled: base.phoneNotificationsEnabled,
     preferredChannel: base.preferredChannel,
     appointmentPhone: phone,
     email,
+    bypassMarketingConsent: bypassConsent,
   });
 
   if (!resolved.channel) {
@@ -53,10 +57,8 @@ async function deliver(
       extra: base.extra,
     });
     const auditChannel = base.preferredChannel ?? "WHATSAPP";
-    const dest =
-      phone && isValidPhone(phone)
-        ? normalizePhone(phone)
-        : email?.trim() || phone?.trim() || null;
+    const phoneE164Audit = phone ? toIsraeliMobileE164(phone) : null;
+    const dest = phoneE164Audit ?? email?.trim() ?? phone?.trim() ?? null;
     await logNotificationSkipped({
       userId: base.userId ?? null,
       appointmentId: base.appointmentId ?? null,
@@ -84,7 +86,32 @@ async function deliver(
 
   if (resolved.usePhoneChannel && phone) {
     const phoneForSend = phone.trim();
-    const normalized = isValidPhone(phoneForSend) ? normalizePhone(phoneForSend) : phoneForSend;
+    const normalized = toIsraeliMobileE164(phoneForSend);
+    if (!normalized) {
+      const msgMismatch = getMessageForType(type, {
+        customerName: base.customerName,
+        serviceName: base.serviceName,
+        date: base.date,
+        time: base.time,
+        extra: base.extra,
+      });
+      await logNotificationSkipped({
+        userId: base.userId ?? null,
+        appointmentId: base.appointmentId ?? null,
+        type,
+        channel: resolved.channel,
+        title: msgMismatch.title,
+        body: msgMismatch.smsBody,
+        destination: phoneForSend,
+        failureReason: "Could not normalize phone to E.164 for SMS/WhatsApp",
+      });
+      console.log(`${LOG} skip: ${purpose} (normalize failed)`, {
+        appointmentId: base.appointmentId,
+        type,
+        raw: phoneForSend,
+      });
+      return { success: false, error: "Invalid phone for E.164", channel: resolved.channel };
+    }
     console.log(`${LOG} phone outbound`, {
       appointmentId: base.appointmentId,
       type,
@@ -94,7 +121,7 @@ async function deliver(
     return sendNotification({
       type,
       channel: resolved.channel,
-      phone: phoneForSend,
+      phone: normalized,
       email,
       customerName: base.customerName,
       serviceName: base.serviceName,
@@ -103,7 +130,7 @@ async function deliver(
       extra: base.extra,
       userId: base.userId,
       appointmentId: base.appointmentId,
-      phoneNotificationsEnabled: true,
+      phoneNotificationsEnabled: consentForSend,
     });
   }
 
@@ -119,7 +146,7 @@ async function deliver(
       extra: base.extra,
       userId: base.userId,
       appointmentId: base.appointmentId,
-      phoneNotificationsEnabled: base.phoneNotificationsEnabled,
+      phoneNotificationsEnabled: consentForSend,
     });
   }
 
@@ -130,10 +157,8 @@ async function deliver(
     time: base.time,
     extra: base.extra,
   });
-  const destMismatch =
-    phone && isValidPhone(phone)
-      ? normalizePhone(phone)
-      : email?.trim() || phone?.trim() || null;
+  const mismatchE164 = phone ? toIsraeliMobileE164(phone) : null;
+  const destMismatch = mismatchE164 ?? email?.trim() ?? phone?.trim() ?? null;
   await logNotificationSkipped({
     userId: base.userId ?? null,
     appointmentId: base.appointmentId ?? null,
@@ -152,7 +177,9 @@ async function deliver(
 }
 
 export async function sendOfficialConfirmationByAdmin(base: DeliveryBase): Promise<SendResult> {
-  return deliver("APPOINTMENT_CONFIRMED", base, "official confirmation (admin مؤكد)");
+  return deliver("APPOINTMENT_CONFIRMED", base, "official confirmation (admin مؤكد)", {
+    bypassMarketingConsent: true,
+  });
 }
 
 export async function sendAppointmentCancelledNotice(base: DeliveryBase): Promise<SendResult> {

@@ -22,7 +22,7 @@ export default async function ServicesPage() {
           علاجات السبا
         </h1>
         <p className="font-sans text-base sm:text-lg md:text-xl text-salon-brown-muted max-w-2xl mx-auto leading-relaxed px-2">
-          اكتشفي مجموعتنا الكاملة من خدمات العناية بالشعر والجمال. الأسعار والمدة حسب الحاجة عند وصولكِ.
+          اكتشفي مجموعتنا الكاملة من خدمات العناية بالشعر والجمال. للاستفسار والتفاصيل يمكنكِ التواصل مع الصالون أو حجز موعد.
         </p>
       </div>
 

@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { AdminNav } from "@/components/admin/AdminNav";
+import { AdminAuthClientGate } from "@/components/admin/AdminAuthClientGate";
 
 export default async function AdminLayout({
   children,
@@ -18,11 +19,11 @@ export default async function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F4EF] flex">
-      <AdminNav />
-      <div className="flex-1 mr-64 lg:mr-72">
-        {children}
+    <AdminAuthClientGate>
+      <div className="flex min-h-screen bg-[#F8F4EF]">
+        <AdminNav />
+        <div className="flex-1 mr-64 lg:mr-72">{children}</div>
       </div>
-    </div>
+    </AdminAuthClientGate>
   );
 }

@@ -5,11 +5,11 @@ import { motion } from "motion/react";
 import { Check, Sparkles } from "lucide-react";
 
 const packages = [
-  { name: "باقة العناية الأساسية", price: "199", description: "عناية سريعة ومثالية لإطلالة مرتبة ومنعشة", features: ["قص شعر", "سشوار", "ترتيب وتصفيف نهائي"], popular: false },
-  { name: "باقة الجمال الملكي", price: "349", description: "تجربة متكاملة للجمال والعناية بجلسة مميزة", features: ["قص شعر", "صبغة", "سشوار", "علاج خفيف للشعر"], popular: true },
-  { name: "باقة المناسبات", price: "399", description: "تجهيز مثالي للمناسبات والإطلالات الخاصة", features: ["تسريحة مناسبة", "شالات أو تصفيف نهائي", "لمسة نهائية أنيقة"], popular: false },
-  { name: "باقة العروس", price: "999", description: "باقة خاصة ليومك المميز بإطلالة راقية", features: ["تسريحة عروس", "شال / تصفيف نهائي", "تجربة أولية", "لمسات نهائية يوم المناسبة"], popular: false },
-  { name: "باقة نعومة ولمعان", price: "299", description: "مناسبة لمن تريد شعرًا أنعم وأكثر حيوية", features: ["علاج شعر", "سشوار", "ترتيب نهائي"], popular: false },
+  { name: "باقة العناية الأساسية", description: "عناية سريعة ومثالية لإطلالة مرتبة ومنعشة", features: ["قص شعر", "سشوار", "ترتيب وتصفيف نهائي"], popular: false },
+  { name: "باقة الجمال الملكي", description: "تجربة متكاملة للجمال والعناية بجلسة مميزة", features: ["قص شعر", "صبغة", "سشوار", "علاج خفيف للشعر"], popular: true },
+  { name: "باقة المناسبات", description: "تجهيز مثالي للمناسبات والإطلالات الخاصة", features: ["تسريحة مناسبة", "شالات أو تصفيف نهائي", "لمسة نهائية أنيقة"], popular: false },
+  { name: "باقة العروس", description: "باقة خاصة ليومك المميز بإطلالة راقية", features: ["تسريحة عروس", "شال / تصفيف نهائي", "تجربة أولية", "لمسات نهائية يوم المناسبة"], popular: false },
+  { name: "باقة نعومة ولمعان", description: "مناسبة لمن تريد شعرًا أنعم وأكثر حيوية", features: ["علاج شعر", "سشوار", "ترتيب نهائي"], popular: false },
 ];
 
 export function SalonPackages() {
@@ -40,7 +40,7 @@ export function SalonPackages() {
             <span className="bg-gradient-to-l from-[#4A3F35] via-[#6B5744] to-[#4A3F35] bg-clip-text text-transparent">باقات مميزة لكِ</span>
           </motion.h3>
           <motion.p initial={{ opacity: 1, y: 0 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.2 }} className="font-body text-xl md:text-2xl text-[#8B7355] max-w-3xl mx-auto leading-relaxed">
-            اختاري الباقة المناسبة لك واستمتعي بتجربة جمالية متكاملة بأفضل الأسعار
+            اختاري الباقة المناسبة لك واستمتعي بتجربة جمالية متكاملة
           </motion.p>
         </div>
 
@@ -69,12 +69,6 @@ export function SalonPackages() {
                 <div className={`relative bg-white/90 backdrop-blur-xl rounded-[2rem] p-8 ${pkg.popular ? "pt-16" : ""}`}>
                   <h4 className="font-display text-2xl font-bold text-[#4A3F35] mb-3 text-center">{pkg.name}</h4>
                   <p className="font-body text-[#8B7355] mb-6 text-center text-[0.9375rem] leading-relaxed">{pkg.description}</p>
-                  <div className="text-center mb-6">
-                    <div className="flex items-baseline justify-center gap-1 mb-1">
-                      <span className={`font-display text-4xl font-bold ${pkg.popular ? "bg-gradient-to-l from-[#C9A882] to-[#B8956F] bg-clip-text text-transparent" : "text-[#C9A882]"}`}>{pkg.price}</span>
-                      <span className="font-body text-[#8B7355] text-lg">₪</span>
-                    </div>
-                  </div>
                   <div className="space-y-3 mb-6">
                     {pkg.features.map((feature, i) => (
                       <div key={i} className="flex items-start gap-3 justify-center">

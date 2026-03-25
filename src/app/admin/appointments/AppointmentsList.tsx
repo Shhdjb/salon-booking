@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { format } from "date-fns";
 import { ar } from "date-fns/locale";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +10,13 @@ import { Trash2 } from "lucide-react";
 import type { Appointment, AppointmentLine, Service, User } from "@prisma/client";
 import { formatAppointmentServiceNames } from "@/lib/appointment-labels";
 import { formatIls } from "@/lib/format-currency";
+import {
+  adminApiErrorMessage,
+  parseAdminApiJson,
+  ADMIN_ACTION_DISABLED_TITLE,
+} from "@/lib/admin-api-errors";
+
+const CLIENT_LOG = "[admin-client][appointments]";
 
 type LineWithService = AppointmentLine & { service: Service };
 
@@ -71,18 +79,26 @@ export function AppointmentsList({
   filters: { date: string; status: string; q: string; userId: string };
 }) {
   const router = useRouter();
+  const { data: session, status: sessionStatus } = useSession();
   const [appointments, setAppointments] = useState(initialAppointments);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [adminToast, setAdminToast] = useState<string | null>(null);
+  const [toastVariant, setToastVariant] = useState<"info" | "error">("info");
   const toastClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showAdminToast = (text: string) => {
+  const actionsLocked =
+    sessionStatus === "loading" ||
+    sessionStatus === "unauthenticated" ||
+    session?.user?.role !== "ADMIN";
+
+  const showAdminToast = (text: string, variant: "info" | "error" = "info") => {
     if (toastClearRef.current) clearTimeout(toastClearRef.current);
+    setToastVariant(variant);
     setAdminToast(text);
     toastClearRef.current = setTimeout(() => {
       setAdminToast(null);
       toastClearRef.current = null;
-    }, 4500);
+    }, variant === "error" ? 6500 : 4500);
   };
 
   useEffect(() => {
@@ -96,17 +112,29 @@ export function AppointmentsList({
   }, []);
 
   const handleUpdateStatus = async (id: string, status: string) => {
+    if (actionsLocked) {
+      showAdminToast(ADMIN_ACTION_DISABLED_TITLE, "error");
+      return;
+    }
     setUpdatingId(id);
     try {
+      console.log(`${CLIENT_LOG} PATCH start`, { appointmentId: id, targetStatus: status });
       const res = await fetch(`/api/admin/appointments/${id}`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await parseAdminApiJson(res);
+      console.log(`${CLIENT_LOG} PATCH response`, {
+        appointmentId: id,
+        targetStatus: status,
+        httpStatus: res.status,
+        body: data,
+      });
       if (res.ok) {
         if (typeof data.message === "string" && data.message) {
-          showAdminToast(data.message);
+          showAdminToast(data.message, "info");
         }
         if (!data.unchanged) {
           setAppointments((prev) =>
@@ -117,23 +145,39 @@ export function AppointmentsList({
         }
         router.refresh();
       } else {
-        alert(data.error || "فشل التحديث");
+        showAdminToast(adminApiErrorMessage(res, data), "error");
       }
+    } catch (e) {
+      console.error(`${CLIENT_LOG} PATCH network/failure`, { appointmentId: id, err: e });
+      showAdminToast("تعذر الاتصال بالخادم", "error");
     } finally {
       setUpdatingId(null);
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (actionsLocked) {
+      showAdminToast(ADMIN_ACTION_DISABLED_TITLE, "error");
+      return;
+    }
     if (!confirm("هل أنت متأكد من حذف هذا الموعد؟")) return;
     try {
-      const res = await fetch(`/api/admin/appointments/${id}`, { method: "DELETE" });
+      console.log(`${CLIENT_LOG} DELETE start`, { appointmentId: id });
+      const res = await fetch(`/api/admin/appointments/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await parseAdminApiJson(res);
+      console.log(`${CLIENT_LOG} DELETE response`, { appointmentId: id, httpStatus: res.status, body: data });
       if (res.ok) {
         setAppointments((prev) => prev.filter((a) => a.id !== id));
         router.refresh();
+      } else {
+        showAdminToast(adminApiErrorMessage(res, data), "error");
       }
-    } catch (error) {
-      console.error(error);
+    } catch (e) {
+      console.error(`${CLIENT_LOG} DELETE network/failure`, { appointmentId: id, err: e });
+      showAdminToast("تعذر الاتصال بالخادم", "error");
     }
   };
 
@@ -141,8 +185,12 @@ export function AppointmentsList({
     <div className="space-y-6">
       {adminToast ? (
         <div
-          className="fixed bottom-6 left-1/2 z-[100] max-w-md -translate-x-1/2 rounded-2xl border border-[#C9A882]/40 bg-[#4A3F35] px-5 py-3 text-center font-body text-sm text-white shadow-lg"
-          role="status"
+          className={`fixed bottom-6 left-1/2 z-[100] max-w-md -translate-x-1/2 rounded-2xl border px-5 py-3 text-center font-body text-sm text-white shadow-lg ${
+            toastVariant === "error"
+              ? "border-red-400/50 bg-[#7c2d2d]"
+              : "border-[#C9A882]/40 bg-[#4A3F35]"
+          }`}
+          role="alert"
           dir="rtl"
         >
           {adminToast}
@@ -292,20 +340,20 @@ export function AppointmentsList({
                         {apt.status === "confirmed" ? (
                           <button
                             type="button"
-                            onClick={() =>
-                              showAdminToast("تم تأكيد هذا الموعد مسبقاً")
-                            }
-                            className="rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-900 shadow-sm hover:bg-blue-100"
-                            title="تم إرسال رسالة التأكيد عند أول ضغط على «تأكيد». لا يُعاد الإرسال."
+                            disabled
+                            className="cursor-not-allowed rounded-lg border border-blue-200 bg-blue-50/90 px-2 py-1 text-xs font-semibold text-blue-800 opacity-90"
+                            title="تم تأكيد هذا الموعد مسبقاً"
+                            aria-label="تم تأكيد هذا الموعد مسبقاً"
                           >
                             مؤكد ✓
                           </button>
                         ) : (
                           <button
                             type="button"
-                            disabled={updatingId === apt.id}
+                            disabled={actionsLocked || updatingId === apt.id}
+                            title={actionsLocked ? ADMIN_ACTION_DISABLED_TITLE : undefined}
                             onClick={() => handleUpdateStatus(apt.id, "confirmed")}
-                            className="rounded-lg bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 disabled:opacity-40"
+                            className="rounded-lg bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             تأكيد
                           </button>
@@ -314,7 +362,12 @@ export function AppointmentsList({
                           <button
                             key={opt.value}
                             type="button"
-                            disabled={updatingId === apt.id || apt.status === opt.value}
+                            disabled={
+                              actionsLocked ||
+                              updatingId === apt.id ||
+                              apt.status === opt.value
+                            }
+                            title={actionsLocked ? ADMIN_ACTION_DISABLED_TITLE : undefined}
                             onClick={() => handleUpdateStatus(apt.id, opt.value)}
                             className={`rounded-lg px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${opt.color}`}
                           >
@@ -325,6 +378,8 @@ export function AppointmentsList({
                           variant="ghost"
                           size="sm"
                           className="h-8 px-2"
+                          disabled={actionsLocked}
+                          title={actionsLocked ? ADMIN_ACTION_DISABLED_TITLE : undefined}
                           onClick={() => handleDelete(apt.id)}
                         >
                           <Trash2 size={14} className="ml-1" />

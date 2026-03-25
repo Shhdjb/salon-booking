@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { ar } from "date-fns/locale";
 import { Calendar, X, CalendarClock } from "lucide-react";
-import { formatIls } from "@/lib/format-currency";
 
 export interface ProfileBookingItem {
   id: string;
@@ -123,15 +122,8 @@ export function ProfileBookings({ upcoming, past, onChanged }: ProfileBookingsPr
     no_show: "لم تحضر",
   };
 
-  const priceBlock = (apt: ProfileBookingItem) => (
+  const bookingMetaBlock = (apt: ProfileBookingItem) => (
     <div className="mt-2 font-body text-xs text-[#6B5D52] space-y-0.5">
-      <p>
-        الأصلي: {formatIls(apt.originalPrice)} · النهائي:{" "}
-        <span className="font-semibold text-[#4A3F35]">{formatIls(apt.finalPrice)}</span>
-        {apt.discountApplied != null && apt.discountApplied > 0 && (
-          <span className="mr-1 text-salon-gold-dark">(خصم {apt.discountApplied}%)</span>
-        )}
-      </p>
       {apt.completedAt && (
         <p>اكتمل: {format(new Date(apt.completedAt), "d MMM yyyy HH:mm", { locale: ar })}</p>
       )}
@@ -233,7 +225,7 @@ export function ProfileBookings({ upcoming, past, onChanged }: ProfileBookingsPr
                     {format(new Date(apt.date), "EEEE d MMMM yyyy", { locale: ar })} ·{" "}
                     {apt.startTime} – {apt.endTime}
                   </p>
-                  {priceBlock(apt)}
+                  {bookingMetaBlock(apt)}
                   <span
                     className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium ${
                       apt.status === "confirmed"
@@ -288,7 +280,7 @@ export function ProfileBookings({ upcoming, past, onChanged }: ProfileBookingsPr
                       {format(new Date(apt.date), "EEEE d MMMM yyyy", { locale: ar })} ·{" "}
                       {apt.startTime} – {apt.endTime}
                     </p>
-                    {priceBlock(apt)}
+                    {bookingMetaBlock(apt)}
                     <span
                       className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium ${
                         apt.status === "completed"
