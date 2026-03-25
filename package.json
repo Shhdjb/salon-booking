@@ -1,0 +1,59 @@
+{
+  "name": "salon-booking",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "prisma generate",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "prod:check": "prisma validate && prisma generate && next build",
+    "db:create": "tsx scripts/setup-database.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:setup": "node scripts/db-setup-full.mjs",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@prisma/client": "6.19.2",
+    "@upstash/redis": "^1.37.0",
+    "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.9.0",
+    "date-fns": "^3.6.0",
+    "dotenv": "^17.3.1",
+    "lucide-react": "^0.460.0",
+    "motion": "^12.35.2",
+    "next": "^14.2.0",
+    "next-auth": "^5.0.0-beta.30",
+    "nodemailer": "^8.0.2",
+    "pg": "^8.20.0",
+    "prisma": "6.19.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.71.2",
+    "twilio": "^5.13.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.0.0",
+    "@types/nodemailer": "^7.0.11",
+    "@types/pg": "^8.18.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.4.0",
+    "eslint": "^8.0.0",
+    "eslint-config-next": "^14.2.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  }
+}

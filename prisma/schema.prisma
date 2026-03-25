@@ -1,0 +1,249 @@
+// SALON SHAHD - Prisma Schema
+// PostgreSQL database for salon booking system
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CLIENT
+  ADMIN
+}
+
+enum AppointmentStatus {
+  pending
+  confirmed
+  completed
+  cancelled
+  no_show
+}
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+  EMAIL
+}
+
+enum NotificationType {
+  APPOINTMENT_CREATED
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_REMINDER
+  APPOINTMENT_MODIFIED
+  APPOINTMENT_CANCELLED
+  VISIT_COMPLETED
+  APPOINTMENT_COMPLETED
+  LOYALTY_UPDATE
+  LOYALTY_REWARD_UNLOCKED
+}
+
+model User {
+  id                         String    @id @default(cuid())
+  name                       String
+  email                      String?   @unique
+  phone                      String?   @unique
+  passwordHash               String
+  role                       Role      @default(CLIENT)
+  completedAppointmentsCount Int       @default(0) // for loyalty
+  /** Highest loyalty discount % for which we already sent LOYALTY_REWARD_UNLOCKED (once per tier). */
+  loyaltyUnlockNotifiedPercent Int     @default(0)
+  phoneNotificationsEnabled Boolean   @default(false)
+  preferredNotificationChannel NotificationChannel?
+  /** Soft-deleted clients: hidden from lists, cannot sign in; appointments retained. */
+  deletedAt                  DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  appointments  Appointment[]
+  notifications Notification[]
+
+  @@index([deletedAt])
+}
+
+model Notification {
+  id            String             @id @default(cuid())
+  userId        String?
+  appointmentId String?
+  type          NotificationType
+  channel       NotificationChannel
+  title         String?
+  body          String?
+  /** E.164 phone, email address, or empty for internal/skip rows */
+  destination   String?
+  status        String             @default("pending") // pending, sent, failed
+  sentAt        DateTime?
+  providerMessageId String?        // Twilio SID / provider id
+  failureReason String?
+  createdAt     DateTime           @default(now())
+
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([appointmentId])
+  @@index([type, status])
+  @@index([createdAt])
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  duration    Int      // minutes
+  price       Float
+  category    String
+  image       String?
+  isActive    Boolean  @default(true)
+  /** Soft-deleted: excluded from public booking; kept for appointment history. */
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  appointments Appointment[]
+  lineItems    AppointmentLine[]
+
+  @@index([deletedAt])
+}
+
+model Appointment {
+  id            String            @id @default(cuid())
+  customerName  String
+  phone         String
+  email         String?
+  notes         String?
+  serviceId     String // primary / first service (legacy + display FK)
+  userId        String?
+  date          String            // YYYY-MM-DD
+  startTime     String            // HH:mm
+  endTime       String            // HH:mm
+  status        AppointmentStatus @default(pending)
+  originalPrice Float             @default(0) // price before discount
+  finalPrice    Float             @default(0) // price after loyalty discount
+  discountPercent Float?          // applied discount %
+  reminderSentAt DateTime?        // set when 24h reminder successfully scheduled/sent
+  completedAt   DateTime?        // set when status → completed
+  lastRescheduledAt DateTime?    // last customer reschedule (audit)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  service       Service       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  notifications Notification[]
+  lines         AppointmentLine[]
+
+  @@index([date, startTime])
+  @@index([serviceId])
+  @@index([userId])
+  @@index([status])
+  @@index([date, status])
+}
+
+model AppointmentLine {
+  id              String   @id @default(cuid())
+  appointmentId   String
+  serviceId       String
+  durationMinutes Int
+  unitPrice       Float
+  sortOrder       Int      @default(0)
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  service     Service     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([appointmentId])
+}
+
+model WorkingHour {
+  id        String   @id @default(cuid())
+  dayOfWeek Int      // 0=Sunday, 6=Saturday
+  openTime  String   // HH:mm
+  closeTime String   // HH:mm
+  isClosed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([dayOfWeek])
+}
+
+model BlockedTime {
+  id        String   @id @default(cuid())
+  date      String   // YYYY-MM-DD
+  startTime String   // HH:mm
+  endTime   String   // HH:mm
+  reason    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
+
+model SalonSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Testimonial {
+  id        String   @id @default(cuid())
+  text      String
+  rating    Int
+  author    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model GalleryImage {
+  id          String    @id @default(cuid())
+  url         String
+  alt         String?
+  title       String?
+  sortOrder   Int       @default(0)
+  isPublished Boolean   @default(true)
+  deletedAt   DateTime?
+  /** Provider key: Cloudinary public_id or local filename under uploads/gallery. */
+  storageKey  String?
+  createdAt   DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([deletedAt])
+}
+
+model SalonPackage {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  services    String?  // JSON array of service IDs or names
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String?  // e.g. "appointment", "service"
+  entityId  String?
+  userId    String?
+  details   String?  // JSON
+  ip        String?
+  createdAt DateTime @default(now())
+}
