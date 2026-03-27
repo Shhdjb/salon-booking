@@ -49,7 +49,14 @@ export function SignUpForm() {
         }),
       });
 
-      const data = await res.json();
+      let data: { error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        setError("حدث خطأ في الاتصال");
+        setLoading(false);
+        return;
+      }
 
       if (!res.ok) {
         setError(data.error || "حدث خطأ غير متوقع");

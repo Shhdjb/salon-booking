@@ -3,10 +3,12 @@ import { hash } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { checkRateLimit, clientIpFromHeaders } from "@/lib/rate-limit";
+import { isValidPhone, normalizePhone } from "@/lib/phone-utils";
 import {
   jsonTooManyRequests,
   jsonValidationError,
   jsonConflict,
+  jsonBadRequest,
   jsonInternal,
   parseJsonBody,
 } from "@/lib/api-response";
@@ -15,10 +17,14 @@ const phoneRegex = /^[\d\s\-+()]{9,22}$/;
 
 const signupSchema = z.object({
   name: z.string().min(2, "الاسم مطلوب"),
-  email: z.string().email("بريد إلكتروني غير صحيح").optional().or(z.literal("")),
+  email: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().email("بريد إلكتروني غير صحيح").optional()
+  ),
   phone: z.string().min(9, "رقم الجوال مطلوب").regex(phoneRegex, "أدخلي رقم جوال صحيح"),
   password: z.string().min(6, "كلمة المرور يجب أن تكون 6 أحرف على الأقل"),
-  phoneNotificationsEnabled: z.boolean().optional().default(false),
+  /** JSON / clients sometimes send "true" as string — coerce. */
+  phoneNotificationsEnabled: z.coerce.boolean().optional().default(false),
   preferredNotificationChannel: z.enum(["SMS", "WHATSAPP"]).optional().nullable(),
 });
 
@@ -42,17 +48,33 @@ export async function POST(req: Request) {
       parsed.data;
 
     const emailToUse = email?.trim() || null;
-    const phoneToUse = phone.trim();
+    const phoneRaw = phone.trim();
+    if (!isValidPhone(phoneRaw)) {
+      return jsonBadRequest("رقم الجوال غير صحيح — استخدمي صيغة إسرائيلية مثل 05xxxxxxxx");
+    }
+    const phoneE164 = normalizePhone(phoneRaw);
 
     const existingByEmail = emailToUse
-      ? await prisma.user.findUnique({ where: { email: emailToUse } })
+      ? await prisma.user.findFirst({ where: { email: emailToUse } })
       : null;
-    const existingByPhone = await prisma.user.findFirst({ where: { phone: phoneToUse } });
+    const existingByPhone = await prisma.user.findFirst({
+      where: { phone: phoneE164 },
+    });
 
     if (existingByEmail) {
+      if (existingByEmail.deletedAt) {
+        return jsonConflict(
+          "هذا البريد مرتبط بحساب موقوف. تواصلي مع الصالون لاستعادته."
+        );
+      }
       return jsonConflict("البريد الإلكتروني مستخدم مسبقاً");
     }
     if (existingByPhone) {
+      if (existingByPhone.deletedAt) {
+        return jsonConflict(
+          "رقم الجوال مرتبط بحساب موقوف. تواصلي مع الصالون لاستعادته."
+        );
+      }
       return jsonConflict("رقم الجوال مستخدم مسبقاً");
     }
 
@@ -62,7 +84,7 @@ export async function POST(req: Request) {
       data: {
         name,
         email: emailToUse,
-        phone: phoneToUse,
+        phone: phoneE164,
         passwordHash,
         role: "CLIENT",
         phoneNotificationsEnabled: phoneNotificationsEnabled ?? false,
@@ -72,17 +94,25 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    console.error("Signup error:", error);
-    const prismaError = error as { code?: string; meta?: { target?: string[] } };
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error("Signup error:", errMsg, error);
+    const prismaError = error as { code?: string; meta?: { target?: string[] | string } };
     if (prismaError?.code === "P2002") {
-      const target = prismaError.meta?.target?.[0];
-      if (target === "phone") {
+      const raw = prismaError.meta?.target;
+      const targets = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      const t = targets.map(String).join(" ").toLowerCase();
+      if (t.includes("phone")) {
         return jsonConflict("رقم الجوال مستخدم مسبقاً");
       }
-      if (target === "email") {
+      if (t.includes("email")) {
         return jsonConflict("البريد الإلكتروني مستخدم مسبقاً");
       }
+      return jsonConflict("هذا البريد أو رقم الجوال مسجّل مسبقاً");
     }
-    return jsonInternal("حدث خطأ في التسجيل", error);
+    const devHint =
+      process.env.NODE_ENV === "development"
+        ? ` (تفاصيل للمطور: ${errMsg.slice(0, 200)})`
+        : "";
+    return jsonInternal(`حدث خطأ في التسجيل${devHint}`, error);
   }
 }

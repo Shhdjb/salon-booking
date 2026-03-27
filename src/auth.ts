@@ -2,6 +2,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { compare } from "bcryptjs";
 import { prisma } from "@/lib/db";
+import { isValidPhone, normalizePhone } from "@/lib/phone-utils";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   // Use request Host (incl. port) for redirects — avoids wrong port when AUTH_URL is 3000 but dev runs on 3001+.
@@ -17,9 +18,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const emailOrPhone = credentials?.email as string;
         if (!emailOrPhone || !credentials?.password) return null;
 
-        const user = emailOrPhone.includes("@")
-          ? await prisma.user.findUnique({ where: { email: emailOrPhone } })
-          : await prisma.user.findFirst({ where: { phone: emailOrPhone } });
+        const trimmed = emailOrPhone.trim();
+        let user = trimmed.includes("@")
+          ? await prisma.user.findUnique({ where: { email: trimmed } })
+          : await prisma.user.findFirst({ where: { phone: trimmed } });
+        if (!user && !trimmed.includes("@") && isValidPhone(trimmed)) {
+          const e164 = normalizePhone(trimmed);
+          user = await prisma.user.findFirst({ where: { phone: e164 } });
+        }
 
         if (!user || !user.passwordHash || user.deletedAt) return null;
 

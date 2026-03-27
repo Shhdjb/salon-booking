@@ -8,7 +8,12 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@salonshahd.com" },
-    update: { role: "ADMIN" },
+    update: {
+      role: "ADMIN",
+      passwordHash,
+      deletedAt: null,
+      name: "مدير الصالون",
+    },
     create: {
       name: "مدير الصالون",
       email: "admin@salonshahd.com",
@@ -17,7 +22,7 @@ async function main() {
     },
   });
 
-  console.log("Admin user:", admin.email);
+  console.log("Admin user:", admin.email, "(password reset to admin123 if existed)");
 
   const services = [
     {

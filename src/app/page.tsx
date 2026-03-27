@@ -7,6 +7,7 @@ import { SalonAbout } from "@/components/home/SalonAbout";
 import { TestimonialsSection } from "@/components/home/TestimonialsSection";
 import { CTASection } from "@/components/home/CTASection";
 import { prisma } from "@/lib/db";
+import { isDatabaseConnectionError } from "@/lib/db-utils";
 import {
   galleryImageHomeSelect,
   galleryImagePublicOrderBy,
@@ -14,20 +15,29 @@ import {
 } from "@/lib/gallery-prisma";
 
 export default async function HomePage() {
-  const dbGallery = await prisma.galleryImage.findMany({
-    where: galleryImagePublicWhere,
-    orderBy: galleryImagePublicOrderBy,
-    select: galleryImageHomeSelect,
-  });
-
-  const galleryItems =
-    dbGallery.length > 0
-      ? dbGallery.map((g) => ({
-          src: g.url,
-          alt: g.alt || g.title || "معرض صالون شهد",
-          title: g.title,
-        }))
-      : null;
+  let galleryItems: { src: string; alt: string; title?: string | null }[] | null = null;
+  try {
+    const dbGallery = await prisma.galleryImage.findMany({
+      where: galleryImagePublicWhere,
+      orderBy: galleryImagePublicOrderBy,
+      select: galleryImageHomeSelect,
+    });
+    galleryItems =
+      dbGallery.length > 0
+        ? dbGallery.map((g) => ({
+            src: g.url,
+            alt: g.alt || g.title || "معرض صالون شهد",
+            title: g.title,
+          }))
+        : null;
+  } catch (e) {
+    if (isDatabaseConnectionError(e)) {
+      console.error("[home] gallery DB unavailable, using fallback images:", e);
+      galleryItems = null;
+    } else {
+      throw e;
+    }
+  }
 
   return (
     <>
