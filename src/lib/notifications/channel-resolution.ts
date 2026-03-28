@@ -1,12 +1,11 @@
 /**
- * Resolve outbound channel: WhatsApp → SMS fallback → Email.
- * Phone channels require valid appointment phone + Twilio env.
- * Marketing-style sends also require `phoneNotificationsEnabled`; admin official
- * confirmation can pass `bypassMarketingConsent` to allow transactional delivery.
+ * Outbound channel: WhatsApp only for phone (no SMS).
+ * Email is used only as fallback when WhatsApp cannot be used (missing Twilio config or invalid phone).
  */
 
 import type { NotificationChannel } from "@prisma/client";
 import { toIsraeliMobileE164 } from "@/lib/phone-utils";
+import { isValidEmail } from "@/lib/email-utils";
 
 const LOG = "[salon-notify][channel]";
 
@@ -14,20 +13,23 @@ export type ResolvedOutbound =
   | {
       channel: NotificationChannel;
       reason: string;
-      /** For SMS/WHATSAPP sends — must match sendNotification expectations */
       usePhoneChannel: boolean;
     }
   | { channel: null; reason: string; usePhoneChannel: false };
+
+function hasTwilioWhatsApp(): boolean {
+  return Boolean(
+    process.env.TWILIO_ACCOUNT_SID?.trim() &&
+      process.env.TWILIO_AUTH_TOKEN?.trim() &&
+      process.env.TWILIO_WHATSAPP_NUMBER?.trim()
+  );
+}
 
 export function resolveOutboundChannel(input: {
   phoneNotificationsEnabled: boolean;
   preferredChannel: NotificationChannel | null | undefined;
   appointmentPhone: string | null | undefined;
   email: string | null | undefined;
-  /**
-   * Admin official booking confirmation (مؤكد): send via phone/email without marketing opt-in,
-   * when contact details exist and Twilio is configured.
-   */
   bypassMarketingConsent?: boolean;
 }): ResolvedOutbound {
   const {
@@ -38,97 +40,75 @@ export function resolveOutboundChannel(input: {
     bypassMarketingConsent = false,
   } = input;
 
+  console.log(`${LOG} resolving`, {
+    bypassMarketingConsent,
+    phoneNotificationsEnabled,
+    preferredChannel: preferredChannel ?? null,
+  });
+
   const consentOk = phoneNotificationsEnabled || bypassMarketingConsent;
   if (!consentOk) {
-    console.log(`${LOG} all channels skipped — user has not enabled notifications (consent)`);
+    console.log(`${LOG} skipped — phone notification consent off (set phoneNotificationsEnabled or use transactional bypass)`);
     return {
       channel: null,
-      reason: "phoneNotificationsEnabled is false — consent required for any channel",
+      reason:
+        "phoneNotificationsEnabled is false — enable notifications or use admin transactional send",
       usePhoneChannel: false,
     };
   }
 
-  const hasWhatsapp = Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      process.env.TWILIO_WHATSAPP_NUMBER
-  );
-  const hasSms = Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      process.env.TWILIO_PHONE_NUMBER
-  );
-
-  const pref = preferredChannel ?? "WHATSAPP";
   const trimmedPhone = appointmentPhone?.trim() ?? "";
   const phoneE164 = trimmedPhone ? toIsraeliMobileE164(trimmedPhone) : null;
   const phoneOk = Boolean(phoneE164);
+  const hasWa = hasTwilioWhatsApp();
 
-  if (consentOk && phoneOk) {
-    if (pref === "WHATSAPP") {
-      if (hasWhatsapp) {
-        return {
-          channel: "WHATSAPP",
-          reason: "opt-in + preferred WHATSAPP + Twilio WhatsApp configured",
-          usePhoneChannel: true,
-        };
-      }
-      if (hasSms) {
-        console.log(`${LOG} WhatsApp unavailable, falling back to SMS`, {
-          preferred: pref,
-        });
-        return {
-          channel: "SMS",
-          reason:
-            "opt-in + preferred WHATSAPP but TWILIO_WHATSAPP_NUMBER missing — fallback SMS",
-          usePhoneChannel: true,
-        };
-      }
-      console.log(`${LOG} skip phone: WHATSAPP preferred but no Twilio WhatsApp or SMS from number`);
-    }
+  if (consentOk && phoneOk && hasWa) {
+    return {
+      channel: "WHATSAPP",
+      reason: "WhatsApp — valid E.164 + Twilio WhatsApp configured",
+      usePhoneChannel: true,
+    };
+  }
 
-    if (pref === "SMS") {
-      if (hasSms) {
-        return {
-          channel: "SMS",
-          reason: "opt-in + preferred SMS + Twilio SMS number configured",
-          usePhoneChannel: true,
-        };
-      }
-      if (hasWhatsapp) {
-        console.log(`${LOG} SMS number missing, falling back to WhatsApp`, {
-          preferred: pref,
-        });
-        return {
-          channel: "WHATSAPP",
-          reason:
-            "opt-in + preferred SMS but TWILIO_PHONE_NUMBER missing — fallback WhatsApp",
-          usePhoneChannel: true,
-        };
-      }
-      console.log(`${LOG} skip phone: SMS preferred but no Twilio SMS or WhatsApp`);
-    }
-  } else if (!phoneOk) {
-    console.log(`${LOG} phone channels skipped (invalid or empty phone)`, {
+  if (consentOk && phoneOk && !hasWa) {
+    console.error(
+      `${LOG} WhatsApp unavailable — set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER (e.g. whatsapp:+14155238886)`,
+      { rawPhone: trimmedPhone }
+    );
+  } else if (consentOk && !phoneOk) {
+    console.log(`${LOG} phone channel skipped — invalid or empty phone (need Israeli mobile E.164)`, {
       raw: appointmentPhone ?? null,
     });
   }
 
-  const em = email?.trim();
-  if (em && em.includes("@")) {
+  const em = email?.trim() ?? "";
+  if (isValidEmail(em)) {
+    if (consentOk && phoneOk && !hasWa) {
+      console.warn(`${LOG} falling back to EMAIL — WhatsApp/Twilio not configured`, {
+        destinationHint: "email",
+      });
+    } else if (consentOk && !phoneOk) {
+      console.warn(`${LOG} using EMAIL — no valid phone for WhatsApp`, {});
+    }
     return {
       channel: "EMAIL",
-      reason: phoneOk
-        ? "email fallback after phone channel unavailable"
-        : "email — no valid phone for SMS/WhatsApp",
+      reason: phoneOk && !hasWa
+        ? "email fallback — Twilio WhatsApp not configured"
+        : "email — no valid phone for WhatsApp",
       usePhoneChannel: false,
     };
   }
 
+  const reason = !hasWa
+    ? "no channel: Twilio WhatsApp not configured and email missing/invalid"
+    : !phoneOk
+      ? "no channel: invalid phone and email missing/invalid"
+      : "no channel: consent or configuration";
+
+  console.error(`${LOG} no outbound channel`, { reason, hasTwilioWhatsApp: hasWa, phoneOk });
   return {
     channel: null,
-    reason:
-      "no valid channel: need (opt-in + valid phone + Twilio) for WhatsApp/SMS, or a valid email",
+    reason,
     usePhoneChannel: false,
   };
 }

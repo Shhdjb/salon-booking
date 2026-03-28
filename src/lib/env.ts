@@ -45,7 +45,9 @@ function logProdOptionalWarnings(): void {
   const twilioCore =
     process.env.TWILIO_ACCOUNT_SID?.trim() && process.env.TWILIO_AUTH_TOKEN?.trim();
   if (!twilioCore) {
-    console.warn("[env] Twilio not fully configured — SMS/WhatsApp notifications will not send.");
+    console.warn(
+      "[env] Twilio not fully configured — WhatsApp notifications will not send (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER)."
+    );
   }
 
   const smtp =
@@ -93,6 +95,14 @@ export function validateServerEnv(): void {
     if (!authUrl?.length) {
       throw new Error(
         "Invalid environment: AUTH_URL is required in production (e.g. https://your-domain.com — used for Auth.js callbacks and absolute URLs)"
+      );
+    }
+    try {
+      // eslint-disable-next-line no-new -- validate URL shape; Auth.js uses the same
+      new URL(authUrl);
+    } catch {
+      throw new Error(
+        `Invalid environment: AUTH_URL must be a valid absolute URL (got ${JSON.stringify(authUrl)}). Example: https://salonshahd.com`
       );
     }
     if (!/^https:\/\//i.test(authUrl)) {

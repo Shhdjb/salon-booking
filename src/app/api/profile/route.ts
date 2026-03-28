@@ -3,23 +3,26 @@ import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getLoyaltyInfo } from "@/lib/loyalty";
-import { isValidPhone } from "@/lib/phone-utils";
+import { isValidPhone, normalizePhone } from "@/lib/phone-utils";
+import { isValidEmail } from "@/lib/email-utils";
 import { formatAppointmentServiceNames } from "@/lib/appointment-labels";
 import {
   jsonUnauthorized,
   jsonForbidden,
   jsonNotFound,
   jsonBadRequest,
+  jsonConflict,
   jsonValidationError,
   jsonInternal,
   parseJsonBody,
 } from "@/lib/api-response";
 
-const phoneRegex = /^[\d\s\-+()]{9,15}$/;
+const phoneRegex = /^[\d\s\-+()]{9,22}$/;
 const updateProfileSchema = z.object({
+  email: z.string().trim().min(1).email("بريد إلكتروني غير صحيح").optional(),
   phone: z.string().min(9, "رقم الجوال مطلوب").regex(phoneRegex, "أدخلي رقم جوال صحيح").optional(),
   phoneNotificationsEnabled: z.boolean().optional(),
-  preferredNotificationChannel: z.enum(["SMS", "WHATSAPP"]).nullable().optional(),
+  preferredNotificationChannel: z.enum(["WHATSAPP"]).nullable().optional(),
 });
 
 export async function GET() {
@@ -96,7 +99,7 @@ export async function GET() {
   return NextResponse.json({
     user: {
       name: user.name,
-      email: user.email ?? "",
+      email: user.email,
       phone: user.phone ?? "",
       completedAppointmentsCount: user.completedAppointmentsCount,
       loyaltyUnlockNotifiedPercent: user.loyaltyUnlockNotifiedPercent ?? 0,
@@ -132,19 +135,33 @@ export async function PATCH(req: Request) {
   }
 
   try {
-    const { phone, phoneNotificationsEnabled, preferredNotificationChannel } = parsed.data;
+    const { email, phone, phoneNotificationsEnabled, preferredNotificationChannel } = parsed.data;
     const updateData: {
+      email?: string;
       phone?: string;
       phoneNotificationsEnabled?: boolean;
-      preferredNotificationChannel?: "SMS" | "WHATSAPP" | null;
+      preferredNotificationChannel?: "WHATSAPP" | null;
     } = {};
+    if (email !== undefined) {
+      const em = email.trim();
+      if (!isValidEmail(em)) return jsonBadRequest("بريد إلكتروني غير صحيح");
+      const taken = await prisma.user.findFirst({
+        where: { email: em, NOT: { id: session.user.id } },
+      });
+      if (taken) return jsonConflict("البريد الإلكتروني مستخدم مسبقاً");
+      updateData.email = em;
+    }
     if (phone !== undefined) {
       if (!isValidPhone(phone)) return jsonBadRequest("رقم جوال غير صحيح");
-      updateData.phone = phone.trim();
+      updateData.phone = normalizePhone(phone);
     }
     if (phoneNotificationsEnabled !== undefined) updateData.phoneNotificationsEnabled = phoneNotificationsEnabled;
     if (preferredNotificationChannel !== undefined)
       updateData.preferredNotificationChannel = preferredNotificationChannel;
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ success: true });
+    }
 
     await prisma.user.update({
       where: { id: session.user.id },

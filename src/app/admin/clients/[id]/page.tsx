@@ -88,7 +88,13 @@ export default async function AdminClientDetailPage({
             <li>
               القناة المفضلة:{" "}
               <strong className="text-[#4A3F35]">
-                {user.preferredNotificationChannel || "—"}
+                {user.preferredNotificationChannel === "WHATSAPP"
+                  ? "واتساب"
+                  : user.preferredNotificationChannel === "EMAIL"
+                    ? "بريد"
+                    : user.preferredNotificationChannel === "SMS"
+                      ? "واتساب (قديم)"
+                      : "—"}
               </strong>
             </li>
             <li>

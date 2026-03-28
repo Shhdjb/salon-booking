@@ -1,6 +1,6 @@
 /**
  * Appointment status, loyalty, and admin/client-driven notifications.
- * APPOINTMENT_CONFIRMED (WhatsApp/SMS) only when:
+ * APPOINTMENT_CONFIRMED (WhatsApp / email fallback) only when:
  * actor === admin-api AND previousStatus === pending AND newStatus === confirmed.
  */
 

@@ -44,7 +44,7 @@ enum NotificationType {
 model User {
   id                         String    @id @default(cuid())
   name                       String
-  email                      String?   @unique
+  email                      String    @unique
   phone                      String?   @unique
   passwordHash               String
   role                       Role      @default(CLIENT)
@@ -113,7 +113,7 @@ model Appointment {
   id            String            @id @default(cuid())
   customerName  String
   phone         String
-  email         String?
+  email         String
   notes         String?
   serviceId     String // primary / first service (legacy + display FK)
   userId        String?

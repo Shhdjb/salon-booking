@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import type { LoyaltyInfo } from "@/lib/loyalty";
 import type { ProfileBookingItem } from "./ProfileBookings";
+import { isValidEmail } from "@/lib/email-utils";
 
 interface ProfileData {
   user: {
@@ -30,8 +31,8 @@ export function ProfileClient() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
   const [editNotifications, setEditNotifications] = useState(false);
-  const [editChannel, setEditChannel] = useState<"SMS" | "WHATSAPP">("WHATSAPP");
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -44,8 +45,8 @@ export function ProfileClient() {
       .then((d) => {
         setData(d);
         setEditPhone(d.user.phone || "");
+        setEditEmail(d.user.email || "");
         setEditNotifications(d.user.phoneNotificationsEnabled ?? false);
-        setEditChannel((d.user.preferredNotificationChannel as "SMS" | "WHATSAPP") || "WHATSAPP");
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -56,6 +57,11 @@ export function ProfileClient() {
 
   const handleSavePreferences = async () => {
     if (!data) return;
+    const em = editEmail.trim();
+    if (!em || !isValidEmail(em)) {
+      setSaveError("أدخلي بريداً إلكترونياً صالحاً");
+      return;
+    }
     setSaveError(null);
     setSaveLoading(true);
     try {
@@ -63,9 +69,10 @@ export function ProfileClient() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          email: em,
           phone: editPhone,
           phoneNotificationsEnabled: editNotifications,
-          preferredNotificationChannel: editNotifications ? editChannel : null,
+          preferredNotificationChannel: editNotifications ? "WHATSAPP" : null,
         }),
       });
       const json = await res.json();
@@ -74,9 +81,10 @@ export function ProfileClient() {
         ...data,
         user: {
           ...data.user,
+          email: em,
           phone: editPhone,
           phoneNotificationsEnabled: editNotifications,
-          preferredNotificationChannel: editNotifications ? editChannel : null,
+          preferredNotificationChannel: editNotifications ? "WHATSAPP" : null,
         },
       });
       setEditing(false);
@@ -150,12 +158,13 @@ export function ProfileClient() {
                   <span className="text-[#6B5D52]">الاسم:</span>{" "}
                   <span className="text-[#4A3F35] font-medium">{data.user.name}</span>
                 </p>
-                {data.user.email && (
-                  <p className="text-right font-body">
-                    <span className="text-[#6B5D52]">البريد:</span>{" "}
-                    <span className="text-[#4A3F35] font-medium">{data.user.email}</span>
-                  </p>
-                )}
+                <Input
+                  label="البريد الإلكتروني"
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="example@email.com"
+                />
                 <Input
                   label="رقم الجوال"
                   type="tel"
@@ -171,32 +180,8 @@ export function ProfileClient() {
                       onChange={(e) => setEditNotifications(e.target.checked)}
                       className="h-4 w-4 rounded border-[#C9A882] text-[#C9A882]"
                     />
-                    <span>أرغب في استلام تحديثات الموعد على هاتفي</span>
+                    <span>أرغب في استلام تحديثات الموعد على واتساب</span>
                   </label>
-                  {editNotifications && (
-                    <div className="mr-7 flex gap-4">
-                      <label className="flex cursor-pointer items-center gap-2 font-body text-sm text-[#6B5D52]">
-                        <input
-                          type="radio"
-                          name="channel"
-                          checked={editChannel === "WHATSAPP"}
-                          onChange={() => setEditChannel("WHATSAPP")}
-                          className="border-[#C9A882] text-[#C9A882]"
-                        />
-                        واتساب
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2 font-body text-sm text-[#6B5D52]">
-                        <input
-                          type="radio"
-                          name="channel"
-                          checked={editChannel === "SMS"}
-                          onChange={() => setEditChannel("SMS")}
-                          className="border-[#C9A882] text-[#C9A882]"
-                        />
-                        رسالة نصية
-                      </label>
-                    </div>
-                  )}
                 </div>
                 {saveError && (
                   <p className="font-body text-sm text-red-500">{saveError}</p>
@@ -216,12 +201,10 @@ export function ProfileClient() {
                   <span className="text-[#6B5D52]">الاسم:</span>{" "}
                   <span className="text-[#4A3F35] font-medium">{data.user.name}</span>
                 </p>
-                {data.user.email && (
-                  <p>
-                    <span className="text-[#6B5D52]">البريد:</span>{" "}
-                    <span className="text-[#4A3F35] font-medium">{data.user.email}</span>
-                  </p>
-                )}
+                <p>
+                  <span className="text-[#6B5D52]">البريد:</span>{" "}
+                  <span className="text-[#4A3F35] font-medium">{data.user.email}</span>
+                </p>
                 <p>
                   <span className="text-[#6B5D52]">الجوال:</span>{" "}
                   <span className="text-[#4A3F35] font-medium">{data.user.phone || "—"}</span>
@@ -229,11 +212,7 @@ export function ProfileClient() {
                 <p>
                   <span className="text-[#6B5D52]">تحديثات الموعد:</span>{" "}
                   <span className="text-[#4A3F35] font-medium">
-                    {data.user.phoneNotificationsEnabled
-                      ? data.user.preferredNotificationChannel === "WHATSAPP"
-                        ? "واتساب"
-                        : "رسالة نصية"
-                      : "غير مفعّل"}
+                    {data.user.phoneNotificationsEnabled ? "واتساب" : "غير مفعّل"}
                   </span>
                 </p>
               </div>

@@ -31,7 +31,7 @@ const createAppointmentSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}$/, "وقت غير صحيح"),
   customerName: z.string().min(2, "الاسم مطلوب"),
   phone: z.string().min(9, "رقم الجوال مطلوب"),
-  email: z.string().email().optional().or(z.literal("")),
+  email: z.string().trim().min(1, "البريد الإلكتروني مطلوب").email("بريد إلكتروني غير صحيح"),
   notes: z.string().optional(),
   phoneNotificationsConsent: z.boolean().optional().default(false),
 });
@@ -82,15 +82,12 @@ export async function createAppointment(
     startTime: formData.get("startTime") as string,
     customerName: formData.get("customerName") as string,
     phone: formData.get("phone") as string,
-    email: (formData.get("email") as string) || "",
+    email: ((formData.get("email") as string) || "").trim(),
     notes: (formData.get("notes") as string) || "",
     phoneNotificationsConsent: formData.get("phoneNotificationsConsent") === "1",
   };
 
-  const parsed = createAppointmentSchema.safeParse({
-    ...raw,
-    email: raw.email || undefined,
-  });
+  const parsed = createAppointmentSchema.safeParse(raw);
 
   if (!parsed.success) {
     const first = parsed.error.issues?.[0];
@@ -213,7 +210,7 @@ export async function createAppointment(
         endTime: endTimeStr,
         customerName,
         phone: phoneE164,
-        email: email || null,
+        email: email.trim(),
         notes: notes || null,
         status: "pending",
         originalPrice,
@@ -233,14 +230,14 @@ export async function createAppointment(
     });
 
     const shouldNotify = phoneNotificationsConsent || user.phoneNotificationsEnabled;
-    const channel = user.preferredNotificationChannel ?? "WHATSAPP";
+    const channel = "WHATSAPP";
 
     if (phoneNotificationsConsent && !user.phoneNotificationsEnabled) {
       await prisma.user.update({
         where: { id: session.user.id },
         data: {
           phoneNotificationsEnabled: true,
-          preferredNotificationChannel: channel,
+          preferredNotificationChannel: "WHATSAPP",
         },
       });
     }

@@ -14,7 +14,6 @@ export function SignUpForm() {
     password: "",
     confirmPassword: "",
     phoneNotificationsEnabled: false,
-    preferredNotificationChannel: "WHATSAPP" as "SMS" | "WHATSAPP" | null,
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -33,6 +32,16 @@ export function SignUpForm() {
       return;
     }
 
+    const em = formData.email.trim();
+    if (!em) {
+      setError("البريد الإلكتروني مطلوب");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+      setError("أدخلي بريداً إلكترونياً صالحاً");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -41,11 +50,10 @@ export function SignUpForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: formData.name,
-          email: formData.email || undefined,
+          email: em,
           phone: formData.phone,
           password: formData.password,
           phoneNotificationsEnabled: formData.phoneNotificationsEnabled,
-          preferredNotificationChannel: formData.phoneNotificationsEnabled ? formData.preferredNotificationChannel : null,
         }),
       });
 
@@ -90,11 +98,12 @@ export function SignUpForm() {
         required
       />
       <Input
-        label="البريد الإلكتروني (اختياري)"
+        label="البريد الإلكتروني"
         type="email"
         value={formData.email}
         onChange={(e) => setFormData((f) => ({ ...f, email: e.target.value }))}
         placeholder="example@email.com"
+        required
       />
       <div className="space-y-3 rounded-xl border-2 border-[#E8DDD4]/60 bg-white/50 p-4">
         <label className="flex cursor-pointer items-center gap-3 font-body text-[#4A3F35]">
@@ -104,32 +113,8 @@ export function SignUpForm() {
             onChange={(e) => setFormData((f) => ({ ...f, phoneNotificationsEnabled: e.target.checked }))}
             className="h-4 w-4 rounded border-[#C9A882] text-[#C9A882] focus:ring-[#C9A882]"
           />
-          <span>أرغب في استلام تحديثات الموعد على هاتفي</span>
+          <span>أرغب في استلام تحديثات الموعد على واتساب</span>
         </label>
-        {formData.phoneNotificationsEnabled && (
-          <div className="mr-7 flex gap-4">
-            <label className="flex cursor-pointer items-center gap-2 font-body text-sm text-[#6B5D52]">
-              <input
-                type="radio"
-                name="channel"
-                checked={formData.preferredNotificationChannel === "WHATSAPP"}
-                onChange={() => setFormData((f) => ({ ...f, preferredNotificationChannel: "WHATSAPP" }))}
-                className="border-[#C9A882] text-[#C9A882]"
-              />
-              واتساب
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 font-body text-sm text-[#6B5D52]">
-              <input
-                type="radio"
-                name="channel"
-                checked={formData.preferredNotificationChannel === "SMS"}
-                onChange={() => setFormData((f) => ({ ...f, preferredNotificationChannel: "SMS" }))}
-                className="border-[#C9A882] text-[#C9A882]"
-              />
-              رسالة نصية
-            </label>
-          </div>
-        )}
       </div>
       <Input
         label="كلمة المرور"

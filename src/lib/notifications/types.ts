@@ -25,6 +25,6 @@ export interface SendResult {
   error?: string;
   /** Channel used or attempted (for UI messaging). */
   channel?: NotificationChannel;
-  /** Twilio Message SID when WhatsApp/SMS send succeeds. */
+  /** Twilio Message SID when WhatsApp send succeeds. */
   twilioMessageSid?: string;
 }

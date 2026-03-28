@@ -103,7 +103,7 @@ async function deliver(
         title: msgMismatch.title,
         body: msgMismatch.smsBody,
         destination: phoneForSend,
-        failureReason: "Could not normalize phone to E.164 for SMS/WhatsApp",
+        failureReason: "Could not normalize phone to E.164 for WhatsApp",
       });
       console.log(`${LOG} skip: ${purpose} (normalize failed)`, {
         appointmentId: base.appointmentId,
@@ -177,6 +177,13 @@ async function deliver(
 }
 
 export async function sendOfficialConfirmationByAdmin(base: DeliveryBase): Promise<SendResult> {
+  console.log(`${LOG} APPOINTMENT_CONFIRMED trigger (admin pending→confirmed)`, {
+    appointmentId: base.appointmentId ?? null,
+    userId: base.userId ?? null,
+    hasPhone: Boolean(base.phone?.trim()),
+    hasEmail: Boolean(base.email?.trim()),
+    phoneNotificationsEnabled: base.phoneNotificationsEnabled,
+  });
   return deliver("APPOINTMENT_CONFIRMED", base, "official confirmation (admin مؤكد)", {
     bypassMarketingConsent: true,
   });

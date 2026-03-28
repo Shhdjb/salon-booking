@@ -17,15 +17,11 @@ const phoneRegex = /^[\d\s\-+()]{9,22}$/;
 
 const signupSchema = z.object({
   name: z.string().min(2, "الاسم مطلوب"),
-  email: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().email("بريد إلكتروني غير صحيح").optional()
-  ),
+  email: z.string().trim().min(1, "البريد الإلكتروني مطلوب").email("بريد إلكتروني غير صحيح"),
   phone: z.string().min(9, "رقم الجوال مطلوب").regex(phoneRegex, "أدخلي رقم جوال صحيح"),
   password: z.string().min(6, "كلمة المرور يجب أن تكون 6 أحرف على الأقل"),
   /** JSON / clients sometimes send "true" as string — coerce. */
   phoneNotificationsEnabled: z.coerce.boolean().optional().default(false),
-  preferredNotificationChannel: z.enum(["SMS", "WHATSAPP"]).optional().nullable(),
 });
 
 export async function POST(req: Request) {
@@ -44,19 +40,16 @@ export async function POST(req: Request) {
       return jsonValidationError("بيانات غير صحيحة", parsed.error);
     }
 
-    const { name, email, phone, password, phoneNotificationsEnabled, preferredNotificationChannel } =
-      parsed.data;
+    const { name, email, phone, password, phoneNotificationsEnabled } = parsed.data;
 
-    const emailToUse = email?.trim() || null;
+    const emailToUse = email.trim();
     const phoneRaw = phone.trim();
     if (!isValidPhone(phoneRaw)) {
       return jsonBadRequest("رقم الجوال غير صحيح — استخدمي صيغة إسرائيلية مثل 05xxxxxxxx");
     }
     const phoneE164 = normalizePhone(phoneRaw);
 
-    const existingByEmail = emailToUse
-      ? await prisma.user.findFirst({ where: { email: emailToUse } })
-      : null;
+    const existingByEmail = await prisma.user.findFirst({ where: { email: emailToUse } });
     const existingByPhone = await prisma.user.findFirst({
       where: { phone: phoneE164 },
     });
@@ -88,7 +81,7 @@ export async function POST(req: Request) {
         passwordHash,
         role: "CLIENT",
         phoneNotificationsEnabled: phoneNotificationsEnabled ?? false,
-        preferredNotificationChannel: preferredNotificationChannel || null,
+        preferredNotificationChannel: phoneNotificationsEnabled ? "WHATSAPP" : null,
       },
     });
 

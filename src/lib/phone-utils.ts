@@ -47,7 +47,7 @@ export function isValidPhone(phone: string): boolean {
 }
 
 /**
- * Normalize to E.164 for Twilio SMS/WhatsApp. Call only after {@link isValidPhone} is true.
+ * Normalize to E.164 for Twilio WhatsApp. Call only after {@link isValidPhone} is true.
  */
 export function normalizePhone(phone: string): string {
   const e164 = toIsraeliMobileE164(phone);

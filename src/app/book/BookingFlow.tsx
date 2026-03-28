@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
 import { ChevronRight, ChevronLeft, Check } from "lucide-react";
 import type { Service } from "@prisma/client";
+import { isValidEmail } from "@/lib/email-utils";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -137,13 +138,24 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
       if (!customerPhone.trim()) newErrors.customerPhone = "رقم الجوال مطلوب";
       else if (!/^[\d\s\-\+\(\)]+$/.test(customerPhone))
         newErrors.customerPhone = "أدخلي رقم جوال صحيح";
+      if (!customerEmail.trim()) newErrors.customerEmail = "البريد الإلكتروني مطلوب";
+      else if (!isValidEmail(customerEmail))
+        newErrors.customerEmail = "بريد إلكتروني غير صحيح";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleConfirm = async () => {
-    if (selectedServices.length === 0 || !date || !time || !customerName || !customerPhone)
+    if (
+      selectedServices.length === 0 ||
+      !date ||
+      !time ||
+      !customerName ||
+      !customerPhone ||
+      !customerEmail.trim() ||
+      !isValidEmail(customerEmail)
+    )
       return;
 
     const formData = new FormData();
@@ -152,7 +164,7 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
     formData.set("startTime", time);
     formData.set("customerName", customerName.trim());
     formData.set("phone", customerPhone.trim());
-    if (customerEmail.trim()) formData.set("email", customerEmail.trim());
+    formData.set("email", customerEmail.trim());
     if (notes.trim()) formData.set("notes", notes.trim());
     formData.set("phoneNotificationsConsent", phoneNotificationsConsent ? "1" : "0");
 
@@ -396,11 +408,12 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
               error={errors.customerPhone}
             />
             <Input
-              label="البريد الإلكتروني (اختياري)"
+              label="البريد الإلكتروني"
               type="email"
               value={customerEmail}
               onChange={(e) => setCustomerEmail(e.target.value)}
               placeholder="example@email.com"
+              error={errors.customerEmail}
             />
             <div className="rounded-xl border-2 border-[#E8DDD4]/60 bg-white/50 p-4">
               <label className="flex cursor-pointer items-center gap-3 font-body text-[#4A3F35]">
@@ -410,7 +423,7 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
                   onChange={(e) => setPhoneNotificationsConsent(e.target.checked)}
                   className="h-4 w-4 rounded border-[#C9A882] text-[#C9A882] focus:ring-[#C9A882]"
                 />
-                <span>أرغب في استلام تحديثات الموعد على هاتفي (واتساب / رسالة نصية)</span>
+                <span>أرغب في استلام تحديثات الموعد على واتساب</span>
               </label>
             </div>
             <Textarea
@@ -448,6 +461,9 @@ export function BookingFlow({ services, availableDates, user }: BookingFlowProps
               </p>
               <p>
                 <span className="text-[#6B5D52]">الجوال:</span> {customerPhone}
+              </p>
+              <p>
+                <span className="text-[#6B5D52]">البريد:</span> {customerEmail.trim()}
               </p>
               {notes && (
                 <p>

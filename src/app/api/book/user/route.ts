@@ -28,7 +28,7 @@ export async function GET() {
 
   return NextResponse.json({
     name: user.name,
-    email: user.email ?? "",
+    email: user.email,
     phone: user.phone ?? "",
     phoneNotificationsEnabled: user.phoneNotificationsEnabled ?? false,
     preferredNotificationChannel: user.preferredNotificationChannel,
